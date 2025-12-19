@@ -64,6 +64,17 @@ class GradleDistRepoDescriptorLocator(
         WrapperCredentials.findCredentials(baseUrl) { System.getProperty(it) }
 
     private
+    fun gradleDistRepositoryProperty(baseName: String) = project.providers.gradleProperty("org.gradle.distributions.source.repository.$baseName").orNull
+
+    private
+    fun gradleDistCredentialsFromGradleProperties(): WrapperCredentials? {
+        return WrapperCredentials.fromUsernamePassword(
+            gradleDistRepositoryProperty("credential.username") ?: return null,
+            gradleDistRepositoryProperty("credential.password") ?: return null
+        )
+    }
+
+    private
     fun findStandardWrapperUri(): URI? {
         val wrapperProperties = WrapperExecutor.wrapperPropertiesForProjectDirectory(rootProjectDir)
         if (wrapperProperties.exists()) {
@@ -99,6 +110,16 @@ class GradleDistRepoDescriptorLocator(
 
     private
     fun findCustomGradleDistRepository(): GradleDistRepoDescriptor? {
+        val explicitBaseUrl = gradleDistRepositoryProperty("url")?.let { URI.create(it) }
+        if (explicitBaseUrl != null) {
+            return gradleDistRepoDescriptor(
+                "custom",
+                explicitBaseUrl,
+                gradleDistRepositoryProperty("ivyArtifactPattern") ?: DEFAULT_GRADLE_DIST_ARTIFACT_PATTERN,
+                gradleDistCredentialsFromGradleProperties() ?: wrapperCredentials(explicitBaseUrl)
+            )
+        }
+
         val currentWrapperUri = findStandardWrapperUri() ?: return null
         val customBasePath = findStandardCustomBasePath(currentWrapperUri) ?: return null
 

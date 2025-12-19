@@ -21,6 +21,26 @@ class SourceDistributionResolverIntegrationTest : AbstractKotlinIntegrationTest(
     private fun queryGradleDistRepository() =
         "${GradleDistRepoDescriptorLocator::class.qualifiedName}(project, explicitRootProjectDir = file(\"fake-root\")).gradleDistRepository"
 
+    private fun verifyNoCredentials(): String {
+        return $$"""
+            var receivedUser: String? = "uninitialized"
+            var receivedPassword: String? = "uninitialized"
+            repositories {
+                maven {
+                    gradleDistRepository.credentialsApplier(this)
+                    receivedUser = credentials.username
+                    receivedPassword = credentials.password
+                }
+            }
+            require(receivedUser == null) {
+                "Expected no user but received ${receivedUser}"
+            }
+            require(receivedPassword == null) {
+                "Expected no password but received ${receivedPassword}"
+            }
+        """.trimIndent()
+    }
+
     private fun verifyPasswordCredentials(expectedUser: String, expectedPassword: String): String {
         return $$"""
             var receivedUser: String? = null
@@ -107,6 +127,65 @@ class SourceDistributionResolverIntegrationTest : AbstractKotlinIntegrationTest(
         )
 
         build()
+    }
+
+    @Test
+    fun `test explicit custom url repository`() {
+        withBuildScript(
+            $$"""
+            val gradleDistRepository = $${queryGradleDistRepository()}
+            require(gradleDistRepository.repoBaseUrl == uri("https://my-custom-host2:9876/custom-path/deep-path")) {
+                "Unexpected repoBaseUrl in: ${gradleDistRepository}"
+            }
+            require(gradleDistRepository.artifactPattern == "[module]-[revision](-[classifier])(.[ext])") {
+                "Unexpected artifactPattern in: ${gradleDistRepository}"
+            }
+            $${verifyNoCredentials()}
+            """
+        )
+
+        build("-Porg.gradle.distributions.source.repository.url=https://my-custom-host2:9876/custom-path/deep-path")
+    }
+
+    @Test
+    fun `test explicit custom url repository with credentials in url`() {
+        withBuildScript(
+            $$"""
+            val gradleDistRepository = $${queryGradleDistRepository()}
+            require(gradleDistRepository.repoBaseUrl == uri("https://my_user:my_pass@my-custom-host2/custom-path/deep-path")) {
+                "Unexpected repoBaseUrl in: ${gradleDistRepository}"
+            }
+            require(gradleDistRepository.artifactPattern == "[module]-[revision](-[classifier])(.[ext])") {
+                "Unexpected artifactPattern in: ${gradleDistRepository}"
+            }
+            $${verifyPasswordCredentials("my_user", "my_pass")}
+            """
+        )
+
+        build("-Porg.gradle.distributions.source.repository.url=https://my_user:my_pass@my-custom-host2/custom-path/deep-path")
+    }
+
+    @Test
+    fun `test fully customized repository`() {
+        withBuildScript(
+            $$"""
+            val gradleDistRepository = $${queryGradleDistRepository()}
+            require(gradleDistRepository.repoBaseUrl == uri("https://my-custom-host2/custom-path/deep-path")) {
+                "Unexpected repoBaseUrl in: ${gradleDistRepository}"
+            }
+            require(gradleDistRepository.artifactPattern == "company-[module]-[revision]-mod-[classifier].[ext]") {
+                "Unexpected artifactPattern in: ${gradleDistRepository}"
+            }
+            $${verifyPasswordCredentials("my_gradle_user", "my_gradle_pass")}
+            """
+        )
+
+        build(
+            "-Porg.gradle.distributions.source.repository.url=https://my-custom-host2/custom-path/deep-path",
+            "-Porg.gradle.distributions.source.repository.ivyArtifactPattern=company-[module]-[revision]-mod-[classifier].[ext]",
+            "-Porg.gradle.distributions.source.repository.credential.username=my_gradle_user",
+            "-Porg.gradle.distributions.source.repository.credential.password=my_gradle_pass",
+        )
     }
 
     @Test
